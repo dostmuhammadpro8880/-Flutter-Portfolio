@@ -1,0 +1,353 @@
+import 'dart:convert';
+import 'dart:ui';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart';
+import 'package:lottie/lottie.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fl_chart/fl_chart.dart';
+
+void main() {
+  runApp(MyApp());
+}
+
+class MyApp extends StatefulWidget {
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  bool dark = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: dark ? ThemeData.dark() : ThemeData.light(),
+      home: WeatherScreen(
+        toggle: () => setState(() => dark = !dark),
+      ),
+    );
+  }
+}
+
+class WeatherScreen extends StatefulWidget {
+  final VoidCallback toggle;
+  WeatherScreen({required this.toggle});
+
+  @override
+  State<WeatherScreen> createState() => _WeatherScreenState();
+}
+
+class _WeatherScreenState extends State<WeatherScreen> {
+  String apiKey = "0fabd591213a79f03cf3f6d37f3ee9a3";
+
+  TextEditingController controller = TextEditingController();
+
+  String city = "";
+  String temp = "";
+  String condition = "";
+  String icon = "";
+  String error = "";
+
+  List forecast = [];
+
+  bool loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    loadCache();
+    getLocation();
+  }
+
+  Future<void> cache(String data) async {
+    final p = await SharedPreferences.getInstance();
+    p.setString("data", data);
+  }
+
+  Future<void> loadCache() async {
+    final p = await SharedPreferences.getInstance();
+    String? d = p.getString("data");
+
+    if (d != null) {
+      final j = jsonDecode(d);
+      setState(() {
+        city = j["name"];
+        temp = j["main"]["temp"].toString();
+        condition = j["weather"][0]["main"];
+        icon = j["weather"][0]["icon"];
+      });
+    }
+  }
+
+  Future<void> getLocation() async {
+    try {
+      Position pos = await Geolocator.getCurrentPosition();
+      fetchCoords(pos.latitude, pos.longitude);
+    } catch (e) {
+      setState(() => error = "Location denied");
+    }
+  }
+
+  Future<void> fetchCity(String c) async {
+    setState(() {
+      loading = true;
+      error = "";
+    });
+
+    try {
+      final res = await http.get(Uri.parse(
+          "https://api.openweathermap.org/data/2.5/weather?q=$c&appid=$apiKey&units=metric"));
+
+      if (res.statusCode == 200) {
+        cache(res.body);
+        final d = jsonDecode(res.body);
+
+        setState(() {
+          city = d["name"];
+          temp = d["main"]["temp"].toString();
+          condition = d["weather"][0]["main"];
+          icon = d["weather"][0]["icon"];
+        });
+
+        fetchForecast(city);
+      } else {
+        setState(() {
+          error = "City not found";
+          loading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        error = "Offline mode";
+        loading = false;
+      });
+    }
+  }
+
+  Future<void> fetchCoords(double lat, double lon) async {
+    final res = await http.get(Uri.parse(
+        "https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lon&appid=$apiKey&units=metric"));
+
+    cache(res.body);
+
+    final d = jsonDecode(res.body);
+
+    setState(() {
+      city = d["name"];
+      temp = d["main"]["temp"].toString();
+      condition = d["weather"][0]["main"];
+      icon = d["weather"][0]["icon"];
+    });
+
+    fetchForecast(city);
+  }
+
+  Future<void> fetchForecast(String c) async {
+    final res = await http.get(Uri.parse(
+        "https://api.openweathermap.org/data/2.5/forecast?q=$c&appid=$apiKey&units=metric"));
+
+    final d = jsonDecode(res.body);
+
+    setState(() {
+      forecast = d["list"].take(8).toList();
+      loading = false;
+    });
+  }
+
+  Widget glass(Widget child) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(25),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          padding: EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(25),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  BoxDecoration bg() {
+    if (condition == "Rain") {
+      return BoxDecoration(
+        image: DecorationImage(
+            image: NetworkImage(
+                "https://images.unsplash.com/photo-1501594907352"),
+            fit: BoxFit.cover),
+      );
+    }
+    if (condition == "Clouds") {
+      return BoxDecoration(
+        image: DecorationImage(
+            image: NetworkImage(
+                "https://images.unsplash.com/photo-1499346030926"),
+            fit: BoxFit.cover),
+      );
+    }
+    return BoxDecoration(
+      image: DecorationImage(
+          image: NetworkImage(
+              "https://images.unsplash.com/photo-1502082553048"),
+          fit: BoxFit.cover),
+    );
+  }
+
+  Widget chart() {
+    return SizedBox(
+      height: 180,
+      child: LineChart(
+        LineChartData(
+          gridData: FlGridData(show: false),
+          titlesData: FlTitlesData(show: false),
+          borderData: FlBorderData(show: false),
+          lineBarsData: [
+            LineChartBarData(
+              isCurved: true,
+              spots: forecast.asMap().entries.map((e) {
+                return FlSpot(
+                    e.key.toDouble(),
+                    (e.value["main"]["temp"]).toDouble());
+              }).toList(),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget anim() {
+    if (condition == "Rain") {
+      return Lottie.network(
+          "https://assets9.lottiefiles.com/packages/lf20_jmBauI.json",
+          height: 120);
+    }
+    return Lottie.network(
+        "https://assets9.lottiefiles.com/packages/lf20_t24tpvcu.json",
+        height: 120);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: RefreshIndicator(
+        onRefresh: () async {
+          city.isNotEmpty ? fetchCity(city) : getLocation();
+        },
+        child: Container(
+          decoration: bg(),
+          padding: EdgeInsets.all(16),
+          child: SingleChildScrollView(
+            physics: AlwaysScrollableScrollPhysics(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(height: 40),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Weather",
+                        style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white)),
+                    IconButton(
+                        onPressed: widget.toggle,
+                        icon: Icon(Icons.dark_mode, color: Colors.white))
+                  ],
+                ),
+
+                SizedBox(height: 20),
+
+                TextField(
+                  controller: controller,
+                  style: TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: "Search city...",
+                    hintStyle: TextStyle(color: Colors.white70),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.2),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20)),
+                    suffixIcon: IconButton(
+                      icon: Icon(Icons.search, color: Colors.white),
+                      onPressed: () => fetchCity(controller.text),
+                    ),
+                  ),
+                ),
+
+                SizedBox(height: 20),
+
+                if (loading) Center(child: CircularProgressIndicator()),
+
+                if (error.isNotEmpty)
+                  Text(error, style: TextStyle(color: Colors.red)),
+
+                if (!loading && error.isEmpty)
+                  Column(
+                    children: [
+                      glass(Column(
+                        children: [
+                          Text(city,
+                              style: TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white)),
+                          anim(),
+                          Image.network(
+                              "https://openweathermap.org/img/wn/$icon@2x.png"),
+                          Text("$temp°C",
+                              style: TextStyle(
+                                  fontSize: 30,
+                                  color: Colors.white)),
+                          Text(condition,
+                              style: TextStyle(color: Colors.white70)),
+                        ],
+                      )),
+
+                      SizedBox(height: 20),
+
+                      Text("Hourly",
+                          style:
+                              TextStyle(color: Colors.white, fontSize: 18)),
+                      chart(),
+
+                      SizedBox(height: 20),
+
+                      Text("Forecast",
+                          style:
+                              TextStyle(color: Colors.white, fontSize: 18)),
+
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: NeverScrollableScrollPhysics(),
+                        itemCount: forecast.length,
+                        itemBuilder: (c, i) {
+                          return glass(
+                            ListTile(
+                              title: Text(forecast[i]["dt_txt"],
+                                  style: TextStyle(color: Colors.white)),
+                              subtitle: Text(
+                                  "${forecast[i]["main"]["temp"]}°C",
+                                  style:
+                                      TextStyle(color: Colors.white70)),
+                            ),
+                          );
+                        },
+                      )
+                    ],
+                  )
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
