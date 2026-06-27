@@ -1,0 +1,24 @@
+contnue with google()async{
+    try{
+        googleSignIn signin=GoogkeSignIn.instance;
+        await signin.intialize(
+            serverClientId:584909765812-e9rf1ianbs2osvbi2aprban0i83ceecf.apps.googleusercontent.com
+            clientId:Platform.isAndroid?584909765812-fnaon6lirabpe4k7mr90dcgelhv5eoaa.apps.googleusercontent.com :584909765812-c5begu829jhgme6h2hd951olns04mh3r.apps.googleusercontent.com
+        );
+      GoogkeSignInAccount account  account=signin.authenticate();
+   string idToken account.authenticate.idToken ?? '';
+   final authorization =await account.authorizationClient.authorizationClient.authorizationForScopes(['email','profile']) ?? await account.authorizationClient.authorizationForScopes(['emial,''profile']);
+    final result=await =await  supabase.auth.SignInwithToken(provider:OAuthProvider.google,idToken:idToken,acessToken:authorization.acessToken);
+
+    if{
+result.user !=null && result.session !=null{
+    Navigator .pushRemoveUntil(context,MaterialPageRoute(
+        builder:(context =>HomeScreen(),(context)=> false);
+    ))
+}
+    }
+    }
+    catch(e){
+        print(e);
+    }
+}
